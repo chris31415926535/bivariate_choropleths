@@ -1,0 +1,63 @@
+---
+title: "DEMO: Bivariate Choropleth in Leaflet using R"
+author: "Christopher Belanger, PhD"
+date: "20/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(leaflet)
+
+renfrew_csds <- sf::read_sf("shapefiles/renfrew_csds.shp") %>%
+  select(CSDUID, CSDNAME)
+
+csd_median_household_income <- read_csv("data/renfrew_csd_census_2016.csv", col_types = cols(.default = "c")) %>%
+  filter(TEXT_ID == "13001") %>%
+  select(CSDUID = GEO_ID,
+         CSDNAME = GEO_NAME_NOM,
+         median_total_household_income = T_DATA_DONNEE) %>%
+  mutate(median_total_household_income = as.numeric(median_total_household_income))
+
+csd_fp_popwt_avg <- read_csv("data/csd_fp_popwt_avg.csv", col_types = cols(.default = "c")) %>%
+  mutate(avg_mins_popwt = as.numeric(avg_mins_popwt))
+
+# join it all together
+ renfrew_csds <- renfrew_csds %>%
+  left_join(csd_fp_popwt_avg, by = c("CSDUID", "CSDNAME")) %>%
+  left_join(csd_median_household_income, by = c("CSDUID", "CSDNAME"))
+
+source("R/bivariate_choropleth.R")
+```
+
+
+
+The map below is a *bivariate choropleth* which shows the relation between two variables using colour. In this case we're mapping Renfrew County's census sub-divisions based on their travel time to primary care (from a forthcoming study) and their median household income (from the 2016 census).
+
+This is a demo of the function `addBivariateChoropleth()`, which is written in R, CSS, and HTML, and extends the existing `leaflet::addPolygons()` function. As far as I know this is a novel contribution, since I wasn't able to find any leaflet implementation of bivariate choropleths.
+
+*Please note this is a work in progress.*
+
+```{r}
+
+leaflet() %>% 
+  addProviderTiles(provider =  "CartoDB.Positron") %>%
+  addBivariateChoropleth(renfrew_csds, 
+                         avg_mins_popwt, 
+                         median_total_household_income,
+                         var1_label = "Travel Time to Health Care",
+                         var2_label = "Median Household Income",
+                         region_name = "CSDNAME",
+                         weight = 1,
+                         fillOpacity = 0.7,
+                         color = "grey",
+                         highlightOptions = leaflet::highlightOptions(color = "orange",
+                                                                      weight = 2,
+                                                                      opacity = 1))
+```
+
+
+Regions that are darker pink have higher median household incomes; regions that are more blue have higher travel times to primary care. 
+

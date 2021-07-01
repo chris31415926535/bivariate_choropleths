@@ -1,0 +1,169 @@
+---
+title: "test_bivar_choropleth"
+author: "Christopher Belanger, PhD"
+date: "12/06/2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(tidyverse)
+library(sf)
+library(cowplot)
+library(ggiraph)
+
+source("R/bivariate_choropleth.R")
+
+theme_map <-function (...){
+    theme_minimal() +
+      theme(
+        text = element_text(color = "#666666"),
+        # remove all axes
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        # add a subtle grid
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        ...
+      )
+}
+
+renfrew_csds <- sf::read_sf("shapefiles/renfrew_csds.shp")
+
+csd_median_household_income <- read_csv("data/renfrew_csd_census_2016.csv", col_types = cols(.default = "c")) %>%
+  filter(TEXT_ID == "13001") %>%
+  select(CSDUID = GEO_ID,
+         CSDNAME = GEO_NAME_NOM,
+         median_total_household_income = T_DATA_DONNEE) %>%
+  mutate(median_total_household_income = as.numeric(median_total_household_income))
+
+csd_fp_popwt_avg <- read_csv("data/csd_fp_popwt_avg.csv", col_types = cols(.default = "c")) %>%
+  mutate(avg_mins_popwt = as.numeric(avg_mins_popwt))
+
+
+```
+
+
+```{r, eval = FALSE}
+ons_shp <- onsr::get_ons_shp(all_details = TRUE)
+ons_data <- onsr::get_ons_data()
+
+
+
+pops <- ons_data %>%
+  filter(polygon_attribute == "pop2016" & ONS_ID >0) %>%
+  select(ONS_ID,
+         pop2016 = value) %>%
+  mutate(ONS_ID = as.numeric(ONS_ID))
+
+specialty <- ons_data %>%
+  filter(polygon_attribute == "F_specialty_count" & ONS_ID > 0) %>%
+  select(ONS_ID, 
+         specialty_food_stores = value) %>%
+  mutate(ONS_ID = as.numeric(ONS_ID))
+
+# join the data
+df <- ons_shp %>%
+  left_join(pops) %>%
+  left_join(specialty)
+
+```
+
+## Bivariate Choropleth
+
+This is a prototype interactive html bivariate choropleth (or "relationship map") rendered using R. This kind of map shows how two different values vary across space by using and combining two different colours (here, red and blue).
+
+This example maps the census sub-division-level relationship between travel time to community-based family healthcare (family physicians or nurse practitioners) and median household income.
+
+* Regions become **more red** as their income increases, and
+* Regions become **more blue** as their travel time increases.
+* **Dark purple** regions have high incomes and high travel times, and
+* **Light grey/pink** regions have low incomes and low travel times.
+ 
+All values have been divided into tertiles.
+
+
+```{r cars, out.height="100%"}
+
+map_data <- left_join(renfrew_csds, 
+          csd_median_household_income,
+          by = c("CSDUID", "CSDNAME")) %>%
+  left_join(csd_fp_popwt_avg,
+            by = c("CSDUID", "CSDNAME")) %>%
+  select(CSDUID, CSDNAME, median_total_household_income, avg_mins_popwt)
+
+## FFUNCTION STARTS HERE
+var1_label <- "Higher Median\nHousehold Income"
+var2_label <- "Longer Travel Time\n to Healthcare"
+
+plot_title <- "Median Household Income and Travel Time to Family Care"
+plot_subtitle <- "Renfrew County, Ontario"
+
+var1_name <- "median_total_household_income"
+var2_name <- "avg_mins_popwt"
+```
+
+<br><br>
+
+<ul style="margin-top:-30px;">
+
+```{r}
+
+bivariate_choropleth(map_data, 
+                     var1_name, var2_name,
+                     var1_label = var1_label,
+                     var2_label = var2_label,
+                     polygon_names = "CSDNAME",
+                     plot_title= plot_title,
+                     plot_subtitle = plot_subtitle,
+                     legend_xpos = 0.05,
+                     legend_ypos = 0.05,
+                     legend_size = .25)
+```
+
+This map is a prototype, and all aspects (tooltips, colour palettes, etc.) can be changed.
+
+
+
+## Testing leaflet map with layers
+
+
+```{r}
+library(leaflet)
+
+
+renfrew_a <- renfrew_csds[1:10,]
+renfrew_b <- renfrew_csds[11:18,]
+renfrew_c <- renfrew_csds[19,]
+
+highlight_options <- leaflet::highlightOptions(color= "red",
+                                               fillColor = "light red")
+
+leaflet() %>%
+  #addTiles() %>%
+  addMarkers()
+  addProviderTiles(provider = "Esri.WorldTopoMap") %>%
+  #addTiles() %>%
+  addPolygons(data = renfrew_a, group = "Renfrew A",
+              weight = 2,
+              highlightOptions = highlight_options,
+              ) %>%
+  addPolygons(data = renfrew_b, group = "Renfrew B",
+              weight= 2) %>%
+  addPolygons(data = renfrew_c, group = "Renfrew C",
+              weight= 2) %>%
+  addLayersControl(
+    baseGroups = c("Renfrew A", "Renfrew B"),
+    overlayGroups = c("Renfrew C", "graticule", "Mini Map"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  leaflet::addGraticule(group = "graticule", interval = 1)
+#%>%    leaflet::addMiniMap()
+
+
+```
+

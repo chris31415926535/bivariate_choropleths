@@ -1,0 +1,262 @@
+---
+title: "just_leaflet"
+author: "Christopher Belanger, PhD"
+date: "19/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(leaflet)
+
+renfrew_csds <- sf::read_sf("shapefiles/renfrew_csds.shp") %>%
+  select(CSDUID, CSDNAME)
+
+csd_median_household_income <- read_csv("data/renfrew_csd_census_2016.csv", col_types = cols(.default = "c")) %>%
+  filter(TEXT_ID == "13001") %>%
+  select(CSDUID = GEO_ID,
+         CSDNAME = GEO_NAME_NOM,
+         median_total_household_income = T_DATA_DONNEE) %>%
+  mutate(median_total_household_income = as.numeric(median_total_household_income))
+
+csd_fp_popwt_avg <- read_csv("data/csd_fp_popwt_avg.csv", col_types = cols(.default = "c")) %>%
+  mutate(avg_mins_popwt = as.numeric(avg_mins_popwt))
+
+# join it all together
+ renfrew_csds <- renfrew_csds %>%
+  left_join(csd_fp_popwt_avg, by = c("CSDUID", "CSDNAME")) %>%
+  left_join(csd_median_household_income, by = c("CSDUID", "CSDNAME"))
+
+```
+
+Prepare the shapefile and the colour palette
+
+```{r}
+
+map <- leaflet::leaflet()
+
+map_data <- renfrew_csds
+
+ntiles <- 3
+var1_name <- "avg_mins_popwt"
+var2_name <- "median_total_household_income"
+var1_label <- "Travel Time to Health Care →"
+var2_label <- "Median Household Income →"
+fillOpacity = 0.8
+paletteFunction <- pals::stevens.pinkblue #pals::stevens.purplegold
+
+
+
+# the pals package has many palettes for bivariate choropleths.
+# NOTE!! That all of them are 2x2 or 3x3. larger matrices will probably be
+# harder to interpret, and it looks like people don't use them
+bivar_pal <- function(x) paletteFunction(n=ntiles^2)[x]
+
+
+forplot <- map_data %>%
+  rename (var1 = {{var1_name}},
+          var2 = {{var2_name}}) %>%
+  mutate(var1_ntile = dplyr::ntile(var1, n = ntiles),
+         var2_ntile = dplyr::ntile(var2, n = ntiles),
+         pal_num = var1_ntile + (var2_ntile - 1)*ntiles,#(ntiles -var1_ntile)*3 + var2_ntile,
+         pal_colour = bivar_pal(pal_num))
+
+
+## need to set up palette, and match the palette to the CSS control below.
+# use some code from the ggiraph implementationins
+```
+
+
+
+
+
+
+```{r echo = FALSE}
+
+
+palette_size_px <- 120
+swatch_size_px <- round(palette_size_px / ntiles)
+
+row_col_px <- rep(paste0(swatch_size_px,"px"), times = ntiles) %>%
+  stringr::str_flatten(collapse = " ") %>%
+  paste0(., ";")
+
+
+#c <- colorNumeric(palette = "Blues", domain = 1:(ntiles^2))
+
+div_var1 <- paste0('<div class = "var1-label" style="grid-row-start:1; grid-row-end:',(ntiles+1),'; text-align: center; writing-mode: tb-rl;
+        transform: rotate(-180deg);">',var1_label,'</div>')
+div_var2 <- paste0('<div style="text-align:center; grid-column:2 / ',(ntiles+2),';">',var2_label,'</div>')
+
+# set up the indices for the palette
+div_indices <- matrix((1:ntiles^2), 
+                      nrow=ntiles, 
+                      ncol = ntiles, 
+                      byrow = TRUE)
+div_indices <- div_indices[,c(ntiles:1)]
+
+divs <- paste0('<div style="background-color:',bivar_pal(div_indices),'">',div_indices,' </div>') %>%
+  stringr::str_flatten()
+
+palette_html <- paste0('<style>
+.grid-container {
+  display: grid;
+  grid-template-columns: 40px ',row_col_px,
+  'grid-auto-rows: ',row_col_px,' 40px;',
+  '
+ 
+}
+</style>
+</head>
+<body>
+
+
+<div class="grid-container">',
+div_var1,
+divs,
+div_var2,
+'</div>'
+)
+
+labs <- paste0("<b>var1:</b> ", forplot$var1_ntile,
+               "<br><b>var2:</b> ", forplot$var2_ntile) %>%
+  purrr::map(htmltools::HTML)
+
+map %>%
+  #addTiles() %>%
+  #addProviderTiles(provider =  "CartoDB.Positron") %>%#"Esri.WorldGrayCanvas") %>%
+  leaflet::addControl(
+    html = palette_html,
+    position = "bottomleft"
+  ) %>%
+  addPolygons(data = forplot,
+              weight = 2,
+              fillOpacity = fillOpacity,
+              label = labs,
+              fillColor = ~pal_colour)
+```
+
+
+
+
+```{r echo=FALSE}
+addBivariateChoropleth <- function(map, map_data, var1_name, var2_name, ntiles = 3, var1_label = NA, var2_label = NA, label_arrows = TRUE, paletteFunction = pals::stevens.pinkblue, ...){
+  
+  if (is.na(var1_label)) var1_label <- rlang::enexpr(var1_name)
+  if(is.na(var2_label))  var2_label <- rlang::enexpr(var2_name)
+  
+  # separate labels for the palette and the map, if so desired
+  var1_pal_label <- var1_label
+  var2_pal_label <- var2_label
+  
+  # are we putting fun arrows on the labels?
+  if (label_arrows){
+    var1_pal_label <- paste0(var1_label, " →")
+    var2_pal_label <- paste0(var2_label, " →")
+  }
+  #map <- leaflet::leaflet()
+  
+  #map_data <- renfrew_csds
+  
+  # ntiles <- 3
+  # var1_name <- "avg_mins_popwt"
+  # var2_name <- "median_total_household_income"
+  # var1_label <- "Travel Time to Health Care →"
+  # var2_label <- "Median Household Income →"
+  # fillOpacity = 0.8
+  #paletteFunction <- pals::stevens.pinkblue #pals::stevens.purplegold
+  
+  
+  
+  # the pals package has many palettes for bivariate choropleths.
+  # NOTE!! That all of them are 2x2 or 3x3. larger matrices will probably be
+  # harder to interpret, and it looks like people don't use them
+  bivar_pal <- function(x) paletteFunction(n=ntiles^2)[x]
+  
+  
+  forplot <- map_data %>%
+    rename (var1 = {{var1_name}},
+            var2 = {{var2_name}}) %>%
+    mutate(var1_ntile = dplyr::ntile(var1, n = ntiles),
+           var2_ntile = dplyr::ntile(var2, n = ntiles),
+           pal_num = var1_ntile + (var2_ntile - 1)*ntiles,#(ntiles -var1_ntile)*3 + var2_ntile,
+           pal_colour = bivar_pal(pal_num))
+  
+  
+  
+  palette_size_px <- 120
+  swatch_size_px <- round(palette_size_px / ntiles)
+  
+  row_col_px <- rep(paste0(swatch_size_px,"px"), times = ntiles) %>%
+    stringr::str_flatten(collapse = " ") %>%
+    paste0(., ";")
+  
+  
+  #c <- colorNumeric(palette = "Blues", domain = 1:(ntiles^2))
+  
+  div_var1 <- paste0('<div class = "var1-label" style="grid-row-start:1; grid-row-end:',(ntiles+1),'; text-align: center; writing-mode: tb-rl;
+        transform: rotate(-180deg);">',var1_pal_label,'</div>')
+  div_var2 <- paste0('<div style="text-align:center; grid-column:2 / ',(ntiles+2),';">',var2_pal_label,'</div>')
+  
+  # set up the indices for the palette
+  div_indices <- matrix((1:ntiles^2), 
+                        nrow=ntiles, 
+                        ncol = ntiles, 
+                        byrow = TRUE)
+  
+  div_indices <- div_indices[,c(ntiles:1)]
+  
+  # set up the divs for the palette squares
+  divs <- paste0('<div style="background-color:',bivar_pal(div_indices),
+                 '; color:',bivar_pal(div_indices),
+                 ';">',div_indices,' </div>') %>%
+    stringr::str_flatten()
+  
+  # combine the above bits with a css grid wrapper for the html palette
+  palette_html <- paste0(
+    '<style> .grid-container { display: grid;
+    grid-template-columns: 40px ',row_col_px,
+    'grid-auto-rows: ',row_col_px,' 40px;','}
+    </style>
+    <div class="grid-container">',
+    div_var1,
+    divs,
+    div_var2,
+    '</div>')
+    
+  labs <- paste0("<b>",var1_label,"</b> ", forplot$var1_ntile,
+                 "<br><b>",var2_label,"</b> ", forplot$var2_ntile) %>%
+    purrr::map(htmltools::HTML)
+  
+  map %>%
+    leaflet::addControl(
+      html = palette_html,
+      position = "bottomleft"
+    ) %>%
+    addPolygons(data = forplot,
+                label = labs,
+                fillColor = ~pal_colour,
+                ...)
+  
+}
+```
+
+```{r}
+leaflet() %>% 
+  addProviderTiles(provider =  "CartoDB.Positron") %>%
+  addBivariateChoropleth(renfrew_csds, 
+                         avg_mins_popwt, 
+                         median_total_household_income,
+                         var1_label = "Travel Time to Health Care",
+                         var2_label = "Median Household Income",
+                         weight = 1,
+                         fillOpacity = 0.7,
+                         color = "grey",
+                         highlightOptions = leaflet::highlightOptions(color = "orange",
+                                                                      weight = 2,
+                                                                      opacity = 1))
+
+```
+

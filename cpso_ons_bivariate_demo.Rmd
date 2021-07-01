@@ -1,0 +1,35 @@
+---
+title: "DEMO: Bivariate Choropleth in Leaflet using R"
+author: "Christopher Belanger, PhD"
+date: "July 1,2021"
+output: html_document
+---
+  
+  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+library(leaflet)
+
+renfrew_csds <- sf::read_sf("shapefiles/renfrew_csds.shp") %>%
+  select(CSDUID, CSDNAME)
+
+csd_median_household_income <- read_csv("data/renfrew_csd_census_2016.csv", col_types = cols(.default = "c")) %>%
+  filter(TEXT_ID == "13001") %>%
+  select(CSDUID = GEO_ID,
+         CSDNAME = GEO_NAME_NOM,
+         median_total_household_income = T_DATA_DONNEE) %>%
+  mutate(median_total_household_income = as.numeric(median_total_household_income))
+
+csd_fp_popwt_avg <- read_csv("data/csd_fp_popwt_avg.csv", col_types = cols(.default = "c")) %>%
+  mutate(avg_mins_popwt = as.numeric(avg_mins_popwt))
+
+# join it all together
+ renfrew_csds <- renfrew_csds %>%
+  left_join(csd_fp_popwt_avg, by = c("CSDUID", "CSDNAME")) %>%
+  left_join(csd_median_household_income, by = c("CSDUID", "CSDNAME"))
+
+source("R/bivariate_choropleth.R")
+```
